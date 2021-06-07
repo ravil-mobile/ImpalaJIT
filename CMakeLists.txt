@@ -19,17 +19,8 @@
 cmake_minimum_required(VERSION 2.6)
 project(ImpalaJIT)
 
-set(IMPALAJIT_MAJOR_VERSION 1)
-set(IMPALAJIT_MINOR_VERSION 0)
-set(IMPALAJIT_PATCH_VERSION 0)
-set(IMPALAJIT_VERSION
-        ${IMPALAJIT_MAJOR_VERSION}.${IMPALAJIT_MINOR_VERSION}.${IMPALAJIT_PATCH_VERSION})
-
-
-option(SHARED_LIB "Compile the shared library" OFF)
-option(STATIC_LIB "Compile the static library" ON)
+option(SHARED_LIB "Compile the shared library" ON)
 option(TESTS "Enable Tests" OFF)
-
 
 set(source_files compiler/frontend/parser.cc
                  compiler/frontend/scanner.cc
@@ -37,11 +28,6 @@ set(source_files compiler/frontend/parser.cc
                  compiler/function_context.cc
                  compiler/include/nodes/node.h
                  impalajit.cc
-                 compiler/include/nodes/expression_nodes.h
-                 compiler/include/nodes/compare_nodes.h
-                 compiler/include/nodes/conditional_nodes.h
-                 compiler/include/nodes/boolean_nodes.h
-                 compiler/include/nodes/assignment_nodes.h
                  compiler/semantic_analysis/semantic_analyzer.cc
                  compiler/code-gen/code_generator.cpp
                  compiler/code-gen/codegen_visitor.cpp
@@ -57,12 +43,9 @@ message(STATUS "LLVM: ${LLVM_VERSION}")
 
 if(SHARED_LIB)
     add_library(impalajit SHARED ${source_files})
-endif()
-
-if(STATIC_LIB)
+else()
     add_library(impalajit STATIC ${source_files})
 endif()
-
 
 target_include_directories(impalajit PRIVATE include
                                              include/impalajit
@@ -74,10 +57,14 @@ target_include_directories(impalajit PRIVATE include
                                              compiler/code-gen/include
                                              compiler/engine)
 
-target_compile_options(impalajit PRIVATE -std=c++14 -O3)
-target_link_libraries(impalajit PUBLIC -rdynamic -lm ${math_library} ${LLVM_LIBS})
+
+target_compile_options(impalajit PRIVATE -std=c++14 -O3 -fPIC)
+target_link_libraries(impalajit PUBLIC -rdynamic -lm)
+
+# assume that llvm components are given as static libraries
+target_link_libraries(impalajit PRIVATE ${LLVM_LIBS})
 target_include_directories(impalajit PRIVATE ${LLVM_INCLUDE_DIRS})
-target_compile_definitions(impalajit PRIVATE ${LLVM_DEFINITIONS})
+target_compile_definitions(impalajit PUBLIC ${LLVM_DEFINITIONS})
 
 
 if (TESTS)
@@ -85,23 +72,40 @@ if (TESTS)
     add_subdirectory(tests)
 endif()
 
-export(TARGETS impalajit NAMESPACE IMPALA:: FILE ImpalaJitTargets.cmake)
+set(IMPALA_CMAKE_FILES lib/impalajit/cmake)
+install(TARGETS impalajit DESTINATION lib
+        EXPORT ImpalaJITTargets
+        INCLUDES DESTINATION include)
+install(EXPORT ImpalaJITTargets DESTINATION ${IMPALA_CMAKE_FILES})
 
-# install target
-install(TARGETS impalajit
-        DESTINATION lib)
+install(FILES
+        include/impalajit.hh
+        include/impalajit.f90
+        DESTINATION
+        include)
 
-install(FILES include/impalajit.hh
-        DESTINATION include)
+install(FILES
+        include/impalajit/types.hh
+        DESTINATION
+        include/impalajit)
 
-install(FILES include/impalajit.f90
-        DESTINATION include)
+install(FILES
+        DESTINATION
+        lib/cmake)
 
-install(FILES include/impalajit/types.hh
-        DESTINATION include/impalajit)
+include(CMakePackageConfigHelpers)
+configure_package_config_file(share/ImpalaJITConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/ImpalaJITConfig.cmake
+        INSTALL_DESTINATION ${IMPALA_CMAKE_FILES})
 
-install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/ImpalaJitTargets.cmake
-        DESTINATION lib/cmake)
+write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/ImpalaJITConfigVersion.cmake
+        VERSION 1.0.0
+        COMPATIBILITY SameMajorVersion)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/ImpalaJITConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/ImpalaJITConfigVersion.cmake
+        DESTINATION ${IMPALA_CMAKE_FILES})
 
 
 # uninstall target
@@ -109,6 +113,7 @@ configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake_uninstall.cmake.in"
         "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
         IMMEDIATE @ONLY)
+
 add_custom_target(uninstall
         COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake)
 
